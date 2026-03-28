@@ -11,7 +11,7 @@ import { sleep } from './util.js';
 const videoPath = './test/test.mp4';
 const title = '测试标题';
 const description = '测试简介';
-const smsCode = '';  // 短信验证码（6位数字），需要时填入后重新运行
+const smsCode = '337676';  // 短信验证码（6位数字），需要时填入后重新运行
 
 async function main() {
   console.log('=== 抖音视频发布 Demo ===\n');

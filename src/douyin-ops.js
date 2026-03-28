@@ -491,90 +491,7 @@ export function createOps(page) {
     async checkLogin(opts = {}) {
       const { smsCode } = opts;
 
-      // ── 第0优先级：如果传入了验证码，尝试填入并提交 ──
-      if (smsCode) {
-        console.log(`[ops] 收到验证码: ${smsCode}，尝试填入...`);
-
-        const SMS_CODE_INPUT = 'article[class*="uc_verification_component_layout"] #button-input[placeholder="请输入验证码"]';
-
-        const codeInputFound = await op.query((sel) => {
-          const input = document.querySelector(sel);
-          if (!input) return false;
-          const rect = input.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }, SMS_CODE_INPUT);
-
-        if (!codeInputFound) {
-          return {
-            ok: false,
-            loggedIn: false,
-            phase: 'sms_code_input',
-            error: 'code_input_not_found',
-            message: '未找到验证码输入框，可能页面状态已变化，请重新调用（不带验证码）检测当前状态',
-          };
-        }
-
-        // 点击输入框聚焦
-        await op.click([SMS_CODE_INPUT]);
-        await sleep(300);
-
-        // 使用 puppeteer 原生 type 方法逐字输入
-        await op.page.type(SMS_CODE_INPUT, smsCode, { delay: 100 });
-
-        // 验证是否填入成功
-        const inputValue = await op.query((sel) => {
-          const input = document.querySelector(sel);
-          return input ? input.value : '';
-        }, SMS_CODE_INPUT);
-        console.log(`[ops] 验证码填入结果: value="${inputValue}"`);
-        console.log('[ops] 验证码已输入，点击验证按钮...');
-
-        await sleep(300);
-
-        // 点击「验证」按钮
-        const verifyBtnResult = await op.click([
-          'div[class*="uc_verification_component_btn"][class*="primary"]:has-text("验证")',
-          'div[class*="uc_verification_component_btn"]:has-text("验证")',
-        ]);
-
-        if (!verifyBtnResult.ok) {
-          return {
-            ok: true,
-            loggedIn: false,
-            phase: 'sms_code_submitted',
-            message: '验证码已输入但未找到验证按钮，请手动点击验证按钮后再次调用本接口',
-          };
-        }
-
-        console.log('[ops] 已点击验证按钮，等待页面跳转...');
-
-        // 等待验证完成：navigation(networkidle2) 或验证码输入框消失，两者取其快
-        const navTimeout = 5_000;
-        const verifyDone = await Promise.race([
-          op.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: navTimeout })
-            .then(() => 'navigated')
-            .catch(() => null),
-          op.waitFor((sel) => {
-            return !document.querySelector(sel);
-          }, { timeout: navTimeout, interval: 500, args: ['article[class*="uc_verification_component_layout"] #button-input[placeholder="请输入验证码"]'] })
-            .then(r => r.ok ? 'element_gone' : null),
-        ]);
-
-        if (!verifyDone) {
-          // 两个都超时了，验证码输入框还在
-          return {
-            ok: true,
-            loggedIn: false,
-            phase: 'sms_code_submitted',
-            message: '验证码已输入，但页面尚未跳转。可能验证码有误或需要等待，请稍后再次调用本接口检测状态',
-          };
-        }
-
-        console.log(`[ops] 验证页面已变化 (${verifyDone})，等待稳定...`);
-        await sleep(1000);
-
-        return { ok: true, loggedIn: true, phase: 'logged_in' };
-      }
+      const SMS_CODE_INPUT = 'article[class*="uc_verification_component_layout"] #button-input[placeholder="请输入验证码"]';
 
       // ── 第1优先级：检测二维码登录页 ──
       const qrcodeInfo = await op.query(() => {
@@ -655,23 +572,83 @@ export function createOps(page) {
 
       // ── 第3优先级：检测验证码输入框（已点击接收短信后的界面） ──
       const codeInput = await op.query(() => {
-        const input = document.querySelector('article[class*="uc_verification_component_layout"] #button-input[placeholder="请输入验证码"]');
+        const input = document.querySelector(sel);
         if (!input) return { found: false };
         const rect = input.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
           return { found: true };
         }
         return { found: false };
-      });
+      }, SMS_CODE_INPUT);
 
       if (codeInput.found) {
-        console.log('[ops] 检测到验证码输入框，等待用户提供验证码');
-        return {
-          ok: true,
-          loggedIn: false,
-          phase: 'sms_code_input',
-          message: '已进入验证码输入界面，请获取手机短信验证码后，携带 smsCode 参数再次调用本接口',
-        };
+        // 没传验证码 → 提示用户
+        if (!smsCode) {
+          console.log('[ops] 检测到验证码输入框，等待用户提供验证码');
+          return {
+            ok: true,
+            loggedIn: false,
+            phase: 'sms_code_input',
+            message: '已进入验证码输入界面，请获取手机短信验证码后，携带 smsCode 参数再次调用本接口',
+          };
+        }
+
+        // 传了验证码 → 填入并提交
+        console.log(`[ops] 收到验证码: ${smsCode}，填入中...`);
+
+        await op.click([SMS_CODE_INPUT]);
+        await sleep(300);
+
+        await op.page.type(SMS_CODE_INPUT, smsCode, { delay: 100 });
+
+        const inputValue = await op.query((sel) => {
+          const input = document.querySelector(sel);
+          return input ? input.value : '';
+        }, SMS_CODE_INPUT);
+        console.log(`[ops] 验证码填入结果: value="${inputValue}"`);
+
+        await sleep(300);
+
+        // 点击「验证」按钮
+        const verifyBtnResult = await op.click([
+          'div[class*="uc_verification_component_btn"][class*="primary"]:has-text("验证")',
+          'div[class*="uc_verification_component_btn"]:has-text("验证")',
+        ]);
+
+        if (!verifyBtnResult.ok) {
+          return {
+            ok: true,
+            loggedIn: false,
+            phase: 'sms_code_submitted',
+            message: '验证码已输入但未找到验证按钮，请手动点击验证按钮后再次调用本接口',
+          };
+        }
+
+        console.log('[ops] 已点击验证按钮，等待页面跳转...');
+
+        const navTimeout = 15_000;
+        const verifyDone = await Promise.race([
+          op.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: navTimeout })
+            .then(() => 'navigated')
+            .catch(() => null),
+          op.waitFor((sel) => {
+            return !document.querySelector(sel);
+          }, { timeout: navTimeout, interval: 500, args: [SMS_CODE_INPUT] })
+            .then(r => r.ok ? 'element_gone' : null),
+        ]);
+
+        if (!verifyDone) {
+          return {
+            ok: true,
+            loggedIn: false,
+            phase: 'sms_code_submitted',
+            message: '验证码已输入，但页面尚未跳转。可能验证码有误或需要等待，请稍后再次调用本接口检测状态',
+          };
+        }
+
+        console.log(`[ops] 验证页面已变化 (${verifyDone})，等待稳定...`);
+        await sleep(1000);
+        return { ok: true, loggedIn: true, phase: 'logged_in' };
       }
 
       // ── 第4优先级：都没有 → 已登录 ──
