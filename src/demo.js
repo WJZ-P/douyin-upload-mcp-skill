@@ -7,7 +7,7 @@
 import { createDouyinSession, disconnect } from './index.js';
 
 // ── 修改这里 ──
-const videoPath = 'D:/videos/test.mp4';
+const videoPath = './test/test.mp4';
 const title = '测试标题';
 const description = '测试简介';
 

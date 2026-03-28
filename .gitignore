@@ -3,3 +3,4 @@ douyin-output/
 .env.development
 *.log
 test
+temp
