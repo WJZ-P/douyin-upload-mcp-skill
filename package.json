@@ -1,0 +1,26 @@
+{
+  "name": "douyin-upload-mcp-skill",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "mcp": "node src/mcp-server.js",
+    "daemon": "node src/daemon/server.js"
+  },
+  "keywords": [
+    "douyin",
+    "tiktok",
+    "cdp",
+    "puppeteer",
+    "mcp"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "通过 CDP 操控抖音创作者中心网页进行内容创作与管理",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "puppeteer-core": "^24.39.1",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}
