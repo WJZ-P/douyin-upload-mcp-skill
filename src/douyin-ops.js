@@ -467,14 +467,116 @@ export function createOps(page) {
     /**
      * 检查登录状态
      *
-     * 判断逻辑：
-     *   - 页面上有 aria-label="二维码" 的元素 → 未登录（在登录页），截图保存二维码
-     *   - 没有 → 已登录
+     * 判断逻辑（多级检测，适配多次调用的登录流程）：
+     *   0. 如果传入了 smsCode，检测验证码输入框并填入提交
+     *   1. 检测是否在二维码登录页
+     *      → 有 aria-label="二维码" → 截图保存二维码，返回 phase='qrcode'
+     *   2. 检测是否在身份验证界面（扫码后可能出现）
+     *      → 有「接收短信验证码」元素 → 自动点击，返回 phase='sms_verification'
+     *   3. 检测是否在验证码输入界面（已点击接收短信后出现）
+     *      → 有验证码输入框 → 返回 phase='sms_code_input'，提示传入验证码
+     *   4. 都没有 → 已登录，返回 phase='logged_in'
      *
-     * @returns {Promise<{ok: boolean, loggedIn: boolean, qrcodePath?: string}>}
+     * MCP 客户端可多次调用此接口推进登录流程：
+     *   第1次 → qrcode（用户去扫码）
+     *   第2次 → sms_verification（自动点了接收验证码）
+     *   第3次 → sms_code_input（提示需要传入验证码）
+     *   第4次（带 smsCode）→ 填入验证码并提交
+     *   第5次 → logged_in
+     *
+     * @param {object} [opts]
+     * @param {string} [opts.smsCode] - 短信验证码（6位数字）
+     * @returns {Promise<{ok: boolean, loggedIn: boolean, phase?: string, qrcodePath?: string}>}
      */
-    async checkLogin() {
-      // 通过 aria-label="二维码" 判断是否在登录页
+    async checkLogin(opts = {}) {
+      const { smsCode } = opts;
+
+      // ── 第0优先级：如果传入了验证码，尝试填入并提交 ──
+      if (smsCode) {
+        console.log(`[ops] 收到验证码: ${smsCode}，尝试填入...`);
+
+        const SMS_CODE_INPUT = 'article[class*="uc_verification_component_layout"] #button-input[placeholder="请输入验证码"]';
+
+        const codeInputFound = await op.query((sel) => {
+          const input = document.querySelector(sel);
+          if (!input) return false;
+          const rect = input.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        }, SMS_CODE_INPUT);
+
+        if (!codeInputFound) {
+          return {
+            ok: false,
+            loggedIn: false,
+            phase: 'sms_code_input',
+            error: 'code_input_not_found',
+            message: '未找到验证码输入框，可能页面状态已变化，请重新调用（不带验证码）检测当前状态',
+          };
+        }
+
+        // 点击输入框聚焦
+        await op.click([SMS_CODE_INPUT]);
+        await sleep(300);
+
+        // 使用 puppeteer 原生 type 方法逐字输入
+        await op.page.type(SMS_CODE_INPUT, smsCode, { delay: 100 });
+
+        // 验证是否填入成功
+        const inputValue = await op.query((sel) => {
+          const input = document.querySelector(sel);
+          return input ? input.value : '';
+        }, SMS_CODE_INPUT);
+        console.log(`[ops] 验证码填入结果: value="${inputValue}"`);
+        console.log('[ops] 验证码已输入，点击验证按钮...');
+
+        await sleep(300);
+
+        // 点击「验证」按钮
+        const verifyBtnResult = await op.click([
+          'div[class*="uc_verification_component_btn"][class*="primary"]:has-text("验证")',
+          'div[class*="uc_verification_component_btn"]:has-text("验证")',
+        ]);
+
+        if (!verifyBtnResult.ok) {
+          return {
+            ok: true,
+            loggedIn: false,
+            phase: 'sms_code_submitted',
+            message: '验证码已输入但未找到验证按钮，请手动点击验证按钮后再次调用本接口',
+          };
+        }
+
+        console.log('[ops] 已点击验证按钮，等待页面跳转...');
+
+        // 等待验证完成：navigation(networkidle2) 或验证码输入框消失，两者取其快
+        const navTimeout = 5_000;
+        const verifyDone = await Promise.race([
+          op.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: navTimeout })
+            .then(() => 'navigated')
+            .catch(() => null),
+          op.waitFor((sel) => {
+            return !document.querySelector(sel);
+          }, { timeout: navTimeout, interval: 500, args: ['article[class*="uc_verification_component_layout"] #button-input[placeholder="请输入验证码"]'] })
+            .then(r => r.ok ? 'element_gone' : null),
+        ]);
+
+        if (!verifyDone) {
+          // 两个都超时了，验证码输入框还在
+          return {
+            ok: true,
+            loggedIn: false,
+            phase: 'sms_code_submitted',
+            message: '验证码已输入，但页面尚未跳转。可能验证码有误或需要等待，请稍后再次调用本接口检测状态',
+          };
+        }
+
+        console.log(`[ops] 验证页面已变化 (${verifyDone})，等待稳定...`);
+        await sleep(1000);
+
+        return { ok: true, loggedIn: true, phase: 'logged_in' };
+      }
+
+      // ── 第1优先级：检测二维码登录页 ──
       const qrcodeInfo = await op.query(() => {
         const img = document.querySelector('img[aria-label="二维码"]');
         if (!img) return null;
@@ -482,37 +584,98 @@ export function createOps(page) {
         return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
       });
 
-      if (!qrcodeInfo) {
-        return { ok: true, loggedIn: true };
+      if (qrcodeInfo) {
+        console.log('[ops] 检测到未登录（发现二维码），截取中...');
+        try {
+          const { mkdirSync, existsSync: exists } = await import('node:fs');
+          const { join } = await import('node:path');
+
+          const tempDir = join(config.outputDir, '..', 'temp');
+          if (!exists(tempDir)) mkdirSync(tempDir, { recursive: true });
+
+          const qrcodePath = join(tempDir, `qrcode_${Date.now()}.png`);
+          await op.page.screenshot({
+            path: qrcodePath,
+            clip: {
+              x: qrcodeInfo.x,
+              y: qrcodeInfo.y,
+              width: qrcodeInfo.width,
+              height: qrcodeInfo.height,
+            },
+          });
+
+          console.log(`[ops] 二维码已保存: ${qrcodePath}`);
+          return { ok: true, loggedIn: false, phase: 'qrcode', qrcodePath };
+        } catch (err) {
+          console.warn(`[ops] 截图二维码失败: ${err.message}`);
+        }
+
+        return { ok: true, loggedIn: false, phase: 'qrcode' };
       }
 
-      // 未登录 — 截图保存二维码
-      console.log('[ops] 检测到未登录（发现二维码），截取中...');
-      try {
-        const { mkdirSync, existsSync: exists } = await import('node:fs');
-        const { join } = await import('node:path');
+      // ── 第2优先级：检测身份验证界面（扫码后的短信验证选择） ──
+      const smsVerification = await op.query(() => {
+        const els = document.querySelectorAll('div[class*="uc_verification_component"]');
+        for (const el of els) {
+          if (el.textContent?.includes('接收短信验证码')) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              return { found: true };
+            }
+          }
+        }
+        return { found: false };
+      });
 
-        const tempDir = join(config.outputDir, '..', 'temp');
-        if (!exists(tempDir)) mkdirSync(tempDir, { recursive: true });
+      if (smsVerification.found) {
+        console.log('[ops] 检测到身份验证界面，自动点击「接收短信验证码」...');
 
-        const qrcodePath = join(tempDir, `qrcode_${Date.now()}.png`);
-        await op.page.screenshot({
-          path: qrcodePath,
-          clip: {
-            x: qrcodeInfo.x,
-            y: qrcodeInfo.y,
-            width: qrcodeInfo.width,
-            height: qrcodeInfo.height,
-          },
-        });
+        const clickResult = await op.click([
+          'div[class*="uc_verification_component_list_item"]:has-text("接收短信验证码")',
+          'div[class*="uc_verification_component"]:has-text("接收短信验证码")',
+        ]);
 
-        console.log(`[ops] 二维码已保存: ${qrcodePath}`);
-        return { ok: true, loggedIn: false, qrcodePath };
-      } catch (err) {
-        console.warn(`[ops] 截图二维码失败: ${err.message}`);
+        if (clickResult.ok) {
+          console.log('[ops] 已点击「接收短信验证码」，等待验证码输入界面...');
+          await sleep(1500);
+        } else {
+          console.warn('[ops] 找到验证界面但点击失败，可能需要手动操作');
+        }
+
+        return {
+          ok: true,
+          loggedIn: false,
+          phase: 'sms_verification',
+          clicked: clickResult.ok,
+          message: clickResult.ok
+            ? '已点击「接收短信验证码」，请查看手机短信，获取验证码后携带 smsCode 参数再次调用本接口'
+            : '检测到身份验证界面但自动点击失败，请手动点击「接收短信验证码」后再次调用本接口',
+        };
       }
 
-      return { ok: true, loggedIn: false };
+      // ── 第3优先级：检测验证码输入框（已点击接收短信后的界面） ──
+      const codeInput = await op.query(() => {
+        const input = document.querySelector('article[class*="uc_verification_component_layout"] #button-input[placeholder="请输入验证码"]');
+        if (!input) return { found: false };
+        const rect = input.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          return { found: true };
+        }
+        return { found: false };
+      });
+
+      if (codeInput.found) {
+        console.log('[ops] 检测到验证码输入框，等待用户提供验证码');
+        return {
+          ok: true,
+          loggedIn: false,
+          phase: 'sms_code_input',
+          message: '已进入验证码输入界面，请获取手机短信验证码后，携带 smsCode 参数再次调用本接口',
+        };
+      }
+
+      // ── 第4优先级：都没有 → 已登录 ──
+      return { ok: true, loggedIn: true, phase: 'logged_in' };
     },
 
     /**

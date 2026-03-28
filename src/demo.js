@@ -5,17 +5,20 @@
  *   node src/demo.js
  */
 import { createDouyinSession, disconnect } from './index.js';
+import { sleep } from './util.js';
 
 // ── 修改这里 ──
 const videoPath = './test/test.mp4';
 const title = '测试标题';
 const description = '测试简介';
+const smsCode = '';  // 短信验证码（6位数字），需要时填入后重新运行
 
 async function main() {
   console.log('=== 抖音视频发布 Demo ===\n');
   console.log(`视频: ${videoPath}`);
   console.log(`标题: ${title || '（不填）'}`);
-  console.log(`简介: ${description || '（不填）'}\n`);
+  console.log(`简介: ${description || '（不填）'}`);
+  console.log(`验证码: ${smsCode || '（未填）'}\n`);
 
   const { ops } = await createDouyinSession();
 
@@ -32,15 +35,29 @@ async function main() {
     const probe = await ops.probe();
     console.log(`    创作者平台: ${probe.isCreatorPage ? '✅' : '❌'}  侧边栏: ${probe.sideNav ? '✅' : '❌'}`);
 
-    // 2. 检查登录
+    // 2. 检查登录（支持多阶段推进）
     console.log('\n[2] 检查登录状态...');
-    const login = await ops.checkLogin();
-    console.log(`    ${login.loggedIn ? '✅ 已登录' : '❌ 未登录'}`);
+    const login = await ops.checkLogin({ smsCode: smsCode || undefined });
+    console.log(`    phase: ${login.phase}`);
+    if (login.message) console.log(`    ${login.message}`);
+    if (login.qrcodePath) console.log(`    二维码: ${login.qrcodePath}`);
+
     if (!login.loggedIn) {
-      console.error('    请先在浏览器中登录抖音创作者平台！');
+      console.log('\n⚠️  未完成登录，请根据提示操作后重新运行 demo。');
+      if (login.phase === 'qrcode') {
+        console.log('    → 请用抖音 App 扫码后重新运行');
+      } else if (login.phase === 'sms_verification') {
+        console.log('    → 已点击接收短信，请查看手机后将验证码填入 smsCode 变量重新运行');
+      } else if (login.phase === 'sms_code_input') {
+        console.log('    → 请将手机收到的验证码填入 smsCode 变量重新运行');
+      } else if (login.phase === 'sms_code_submitted') {
+        console.log('    → 验证码已提交，请稍等后重新运行');
+      }
       disconnect();
       return;
     }
+
+    console.log('    ✅ 已登录');
 
     // 3. 发布视频
     console.log('\n[3] 开始发布视频...');

@@ -53,22 +53,51 @@ server.registerTool(
 server.registerTool(
   "douyin_check_login",
   {
-    description: "检查当前抖音创作者平台是否已登录",
-    inputSchema: {},
+    description: "检查当前抖音创作者平台是否已登录，并推进登录流程。支持多次调用：qrcode（需扫码）→ sms_verification（自动点击接收短信）→ sms_code_input（需传入验证码）→ 带 smsCode 调用完成验证 → logged_in。",
+    inputSchema: {
+      smsCode: z.string().optional().describe("短信验证码（6位数字）。在 phase 为 sms_code_input 时传入"),
+    },
   },
-  async () => {
+  async ({ smsCode }) => {
     try {
       const { ops } = await createDouyinSession();
-      const result = await ops.checkLogin();
+      const result = await ops.checkLogin({ smsCode });
       disconnect();
 
       if (!result.ok) {
-        return { content: [{ type: "text", text: `检测失败: ${result.error}` }], isError: true };
+        const msg = result.message || result.error || '未知错误';
+        return { content: [{ type: "text", text: `检测失败: ${msg}` }], isError: true };
       }
 
-      const status = result.loggedIn ? "已登录" : "未登录";
+      const lines = [];
+
+      switch (result.phase) {
+        case 'logged_in':
+          lines.push('✅ 已登录');
+          break;
+        case 'qrcode':
+          lines.push('❌ 未登录 — 需要扫码');
+          if (result.qrcodePath) lines.push(`二维码已保存至: ${result.qrcodePath}`);
+          lines.push('请扫码后再次调用本接口');
+          break;
+        case 'sms_verification':
+          lines.push('⏳ 身份验证中 — 已点击接收短信验证码');
+          lines.push(result.message);
+          break;
+        case 'sms_code_input':
+          lines.push('📱 等待输入验证码');
+          lines.push(result.message);
+          break;
+        case 'sms_code_submitted':
+          lines.push('⏳ 验证码已提交，等待验证结果');
+          lines.push(result.message);
+          break;
+        default:
+          lines.push(result.message || JSON.stringify(result));
+      }
+
       return {
-        content: [{ type: "text", text: `${status}${result.uncertain ? '（不确定）' : ''}` }],
+        content: [{ type: "text", text: lines.join('\n') }],
       };
     } catch (err) {
       return { content: [{ type: "text", text: `执行崩溃: ${err.message}` }], isError: true };
