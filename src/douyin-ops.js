@@ -209,7 +209,7 @@ export function createOps(page) {
         return { ok: false, error: `tab_not_found: ${target.label}` };
       }
 
-      await sleep(500); // 等 UI 切换稳定
+      await sleep(250); // 等 UI 切换稳定
 
       console.log(`[ops] 已切换到「${target.label}」`);
       return { ok: true, type };
@@ -245,7 +245,7 @@ export function createOps(page) {
       const uploadTimeout = opts.timeout || 300_000; // 默认 5 分钟
       const uploadStart = Date.now();
 
-      await sleep(500); // 短暂等待 UI 开始上传
+      await sleep(250); // 短暂等待 UI 开始上传
 
       while (Date.now() - uploadStart < uploadTimeout) {
         const uploading = await op.query(() => {
@@ -263,12 +263,24 @@ export function createOps(page) {
       }
       console.log(`[ops] 视频上传完成 (${elapsed}ms): ${filePath}`);
 
-      // 5. 选择推荐封面（点击第一个）+ 确认弹窗
-      await sleep(1000); // 等封面推荐加载
+      // 5. 等待 AI 封面生成完毕，再选择推荐封面
+      console.log('[ops] 等待 AI 封面生成完毕...');
+      const coverReady = await op.waitFor(() => {
+        const title = document.querySelector('span[class*="recommendTitle"]');
+        if (!title) return false;
+        // 文本变为"Ai智能推荐封面"（不含"生成中"）即为完成
+        return title.textContent && !title.textContent.includes('生成中');
+      }, { timeout: 60_000, interval: 1000 });
+
+      if (!coverReady.ok) {
+        console.warn(`[ops] AI 封面生成超时（60s），跳过封面选择`);
+      }
+
+      await sleep(250);
       const coverResult = await op.click(['div[class*="recommendCoverContainer"] > div:first-child']);
       if (coverResult.ok) {
         console.log('[ops] 已点击推荐封面，等待确认弹窗...');
-        await sleep(500);
+        await sleep(250);
         const confirmResult = await op.click(['div.semi-modal-footer button.semi-button-primary']);
         if (confirmResult.ok) {
           console.log('[ops] 已确认封面选择');
@@ -296,8 +308,14 @@ export function createOps(page) {
         }
       }
 
-      // 8. 点击发布按钮
-      await sleep(500);
+      // 8. 点击发布按钮（先滚动到视图内）
+      await sleep(250);
+      await op.query(() => {
+        const btn = document.querySelector('div[class*="content-confirm-container"] button[class*="primary"]')
+          || [...document.querySelectorAll('button')].find(b => b.textContent?.includes('发布'));
+        if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      await sleep(250);
       const publishResult = await op.click([
         'div[class*="content-confirm-container"] button[class*="primary"]',
         'button[class*="primary"]:has-text("发布")',
@@ -316,7 +334,7 @@ export function createOps(page) {
      * @param {string} title
      * @returns {Promise<{ok: boolean, error?: string}>}
      */
-    async illTitle(title) {
+    async fillTitle(title) {
       const loc = await op.locate(SELECTORS.titleInput);
       if (!loc.found) {
         return { ok: false, error: 'title_input_not_found' };
@@ -571,7 +589,7 @@ export function createOps(page) {
       }
 
       // ── 第3优先级：检测验证码输入框（已点击接收短信后的界面） ──
-      const codeInput = await op.query(() => {
+      const codeInput = await op.query((sel) => {
         const input = document.querySelector(sel);
         if (!input) return { found: false };
         const rect = input.getBoundingClientRect();
