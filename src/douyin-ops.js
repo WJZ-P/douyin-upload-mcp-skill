@@ -311,21 +311,43 @@ export function createOps(page) {
       // 8. 点击发布按钮（先滚动到视图内）
       await sleep(250);
       await op.query(() => {
-        const btn = document.querySelector('div[class*="content-confirm-container"] button[class*="primary"]')
-          || [...document.querySelectorAll('button')].find(b => b.textContent?.includes('发布'));
+        const container = document.querySelector('div[class*="card-container-creator-layout"]');
+        const btn = container && [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === '发布');
         if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
       await sleep(250);
-      const publishResult = await op.click([
-        'div[class*="content-confirm-container"] button[class*="primary"]',
-        'button[class*="primary"]:has-text("发布")',
-      ]);
+      const publishLoc = await op.query(() => {
+        const container = document.querySelector('div[class*="card-container-creator-layout"]');
+        if (!container) return { found: false };
+        const btn = [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === '发布');
+        if (!btn) return { found: false };
+        const rect = btn.getBoundingClientRect();
+        return { found: true, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      });
+      let publishResult = { ok: false };
+      if (publishLoc.found) {
+        await op.page.mouse.click(publishLoc.x, publishLoc.y);
+        publishResult = { ok: true };
+      }
       if (publishResult.ok) {
-        console.log('[ops] 已点击发布按钮');
+        console.log('[ops] 已点击发布按钮，检测发布结果...');
       } else {
         return { ok: false, error: 'publish_btn_not_found', file: filePath };
       }
 
+      // 9. 检测 toast 判断发布结果
+      const toastResult = await this._waitForToast();
+      if (toastResult.found) {
+        if (toastResult.success) {
+          console.log('[ops] ✅ 视频发布成功');
+          return { ok: true, type: 'video', file: filePath, elapsed, coverSelected: coverResult.ok };
+        } else {
+          console.error(`[ops] ❌ 视频发布失败: ${toastResult.text}`);
+          return { ok: false, error: 'publish_failed', detail: toastResult.text, file: filePath };
+        }
+      }
+
+      // 没检测到 toast，按成功处理（可能页面直接跳转了）
       return { ok: true, type: 'video', file: filePath, elapsed, coverSelected: coverResult.ok };
     },
 
@@ -406,7 +428,146 @@ export function createOps(page) {
       if (!uploadResult.ok) return uploadResult;
 
       console.log(`[ops] 图文已上传 ${paths.length} 张图片`);
+
+      // 4. 填写标题
+      const { title, description } = opts;
+      if (title) {
+        const titleResult = await this.fillTitle(title);
+        if (!titleResult.ok) {
+          console.warn(`[ops] 填写标题失败: ${titleResult.error}`);
+        }
+      }
+
+      // 5. 填写作品简介
+      if (description) {
+        const descResult = await this.fillDescription(description);
+        if (!descResult.ok) {
+          console.warn(`[ops] 填写简介失败: ${descResult.error}`);
+        }
+      }
+
+      // 6. 点击「选择音乐」（先滚动到视图中心）
+      await sleep(500);
+      await op.query(() => {
+        const btn = [...document.querySelectorAll('span')].find(s => s.textContent?.includes('选择音乐'));
+        if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      await sleep(500);
+      const musicResult = await op.click([
+        'div[class*="container-right"] span[class*="action"]:has-text("选择音乐")',
+        'span[class*="action"]:has-text("选择音乐")',
+      ]);
+      if (musicResult.ok) {
+        console.log('[ops] 已点击「选择音乐」');
+      } else {
+        console.warn('[ops] 未找到「选择音乐」按钮，跳过');
+      }
+      await sleep(500);
+
+      // 5. 等待音乐收藏面板加载，hover 第一个 card，点击「使用」
+      const musicPanelReady = await op.waitFor(() => {
+        return !!document.querySelector('div[class*="music-collection-container"]');
+      }, { timeout: 5000, interval: 500 });
+
+      if (musicPanelReady.ok) {
+        console.log('[ops] 音乐收藏面板已加载');
+        await sleep(500);// 等待一小会
+
+        // hover 第一个 card（触发「使用」按钮显示）
+        const firstCard = await op.locate(['div[class*="music-collection-container"] div[class*="card-container"]:first-child']);
+        if (firstCard.found) {
+          await op.page.mouse.move(firstCard.x, firstCard.y);
+          await sleep(500);
+
+          // 点击「使用」按钮
+          const useResult = await op.click([
+            'div[class*="card-container"] button[class*="apply-btn"]',
+            'div[class*="card-container-right"] button.semi-button-primary',
+          ]);
+          if (useResult.ok) {
+            console.log('[ops] 已点击音乐「使用」按钮');
+          } else {
+            console.warn('[ops] 未找到音乐「使用」按钮');
+          }
+          await sleep(500);
+        } else {
+          console.warn('[ops] 未找到音乐卡片');
+        }
+      } else {
+        console.warn('[ops] 音乐收藏面板未加载，跳过');
+      }
+
+      // 8. 点击发布按钮（先滚动到视图中心）
+      await sleep(500);
+      await op.query(() => {
+        const container = document.querySelector('div[class*="card-container-creator-layout"]');
+        const btn = container && [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === '发布');
+        if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      await sleep(500);
+      const publishLoc = await op.query(() => {
+        const container = document.querySelector('div[class*="card-container-creator-layout"]');
+        if (!container) return { found: false };
+        const btn = [...container.querySelectorAll('button')].find(b => b.textContent?.trim() === '发布');
+        if (!btn) return { found: false };
+        const rect = btn.getBoundingClientRect();
+        return { found: true, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      });
+      let publishResult = { ok: false };
+      if (publishLoc.found) {
+        await op.page.mouse.click(publishLoc.x, publishLoc.y);
+        publishResult = { ok: true };
+      }
+      if (publishResult.ok) {
+        console.log('[ops] 已点击发布按钮，检测发布结果...');
+      } else {
+        return { ok: false, error: 'publish_btn_not_found', type: 'imagetext' };
+      }
+
+      // 9. 检测 toast 判断发布结果
+      const toastResult = await this._waitForToast();
+      if (toastResult.found) {
+        if (toastResult.success) {
+          console.log('[ops] ✅ 图文发布成功');
+          return { ok: true, type: 'imagetext', count: paths.length, files: paths };
+        } else {
+          console.error(`[ops] ❌ 图文发布失败: ${toastResult.text}`);
+          return { ok: false, error: 'publish_failed', detail: toastResult.text, type: 'imagetext' };
+        }
+      }
+
       return { ok: true, type: 'imagetext', count: paths.length, files: paths };
+    },
+
+    /**
+     * 内部方法：等待 toast 提示出现，判断发布结果
+     *
+     * 点击发布按钮后，5 秒内每秒检测 semi-toast-content-text：
+     *   - 文本包含"发布成功" → success
+     *   - 其他文本 → 失败，返回 toast 内容
+     *   - 超时无 toast → 未检测到
+     *
+     * @returns {Promise<{found: boolean, success?: boolean, text?: string}>}
+     * @private
+     */
+    async _waitForToast() {
+      for (let i = 0; i < 5; i++) {
+        await sleep(1000);
+        const toastText = await op.query(() => {
+          const el = document.querySelector('span[class*="semi-toast-content-text"]');
+          return el ? el.textContent?.trim() : null;
+        });
+        if (toastText) {
+          console.log(`[ops] 检测到 toast: "${toastText}"`);
+          return {
+            found: true,
+            success: toastText.includes('发布成功'),
+            text: toastText,
+          };
+        }
+      }
+      console.log('[ops] 5 秒内未检测到 toast');
+      return { found: false };
     },
 
     /**
@@ -430,9 +591,24 @@ export function createOps(page) {
       await sleep(500);
 
       // 3. 点击「我要发文」按钮进入文章编辑器
-      const clickResult = await op.click(SELECTORS.publishArticleBtn);
+      const clickResult = await op.click([
+        'button[class*="container-drag-btn"]:has-text("我要发文")',
+        ...SELECTORS.publishArticleBtn,
+      ]);
       if (!clickResult.ok) {
         return { ok: false, error: 'publish_article_btn_not_found' };
+      }
+
+      // 等待页面跳转到文章编辑器
+      const navDone = await Promise.race([
+        op.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15_000 })
+          .then(() => true)
+          .catch(() => false),
+        sleep(15_000).then(() => false),
+      ]);
+
+      if (!navDone) {
+        console.warn('[ops] 文章编辑器页面未跳转，可能需要手动操作');
       }
 
       await sleep(1000); // 等待编辑器加载

@@ -18,7 +18,6 @@ console.debug = console.error;
 
 import { createDouyinSession, disconnect } from './index.js';
 import config from './config.js';
-import { sleep } from './util.js';
 
 const server = new McpServer({
   name: "douyin-upload-mcp-server",
@@ -251,6 +250,94 @@ server.registerTool(
         }],
         isError: true,
       };
+    }
+  }
+);
+
+// ─── 发布视频 ───
+
+server.registerTool(
+  "douyin_publish_video",
+  {
+    description: "发布视频到抖音创作者平台。自动完成：登录检查 → 切换到上传页 → 上传视频文件 → 等待上传完成 → 选择推荐封面 → 填写标题和简介 → 点击发布。",
+    inputSchema: {
+      filePath: z.string().describe("视频文件的绝对路径"),
+      title: z.string().optional().describe("作品标题（可选）"),
+      description: z.string().optional().describe("作品简介（可选）"),
+      timeout: z.number().optional().default(300000).describe("视频上传超时（毫秒），默认 300000（5分钟）"),
+    },
+  },
+  async ({ filePath, title, description, timeout }) => {
+    try {
+      const { ops } = await createDouyinSession();
+
+      // 先检查登录状态
+      const login = await ops.checkLogin();
+      if (!login.loggedIn) {
+        disconnect();
+        return { content: [{ type: "text", text: `未登录（phase: ${login.phase}），请先通过 douyin_check_login 完成登录流程` }], isError: true };
+      }
+
+      const result = await ops.publishVideo(filePath, { title, description, timeout });
+      disconnect();
+
+      if (!result.ok) {
+        let msg = `视频发布失败: ${result.error}`;
+        if (result.detail) msg += `\n详情: ${result.detail}`;
+        return { content: [{ type: "text", text: msg }], isError: true };
+      }
+
+      const lines = [
+        '✅ 视频发布成功',
+        `文件: ${result.file}`,
+        `上传耗时: ${result.elapsed}ms`,
+      ];
+      return { content: [{ type: "text", text: lines.join('\n') }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: `执行崩溃: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+// ─── 发布图文 ───
+
+server.registerTool(
+  "douyin_publish_imagetext",
+  {
+    description: "发布图文到抖音创作者平台。自动完成：登录检查 → 切换到上传页 → 上传图片 → 填写标题和简介 → 选择音乐 → 点击发布。",
+    inputSchema: {
+      filePaths: z.array(z.string()).describe("图片文件绝对路径数组（支持多张）"),
+      title: z.string().optional().describe("作品标题（可选）"),
+      description: z.string().optional().describe("作品简介（可选）"),
+    },
+  },
+  async ({ filePaths, title, description }) => {
+    try {
+      const { ops } = await createDouyinSession();
+
+      // 先检查登录状态
+      const login = await ops.checkLogin();
+      if (!login.loggedIn) {
+        disconnect();
+        return { content: [{ type: "text", text: `未登录（phase: ${login.phase}），请先通过 douyin_check_login 完成登录流程` }], isError: true };
+      }
+
+      const result = await ops.publishImageText(filePaths, { title, description });
+      disconnect();
+
+      if (!result.ok) {
+        let msg = `图文发布失败: ${result.error}`;
+        if (result.detail) msg += `\n详情: ${result.detail}`;
+        return { content: [{ type: "text", text: msg }], isError: true };
+      }
+
+      const lines = [
+        '✅ 图文发布成功',
+        `图片数: ${result.count}`,
+      ];
+      return { content: [{ type: "text", text: lines.join('\n') }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: `执行崩溃: ${err.message}` }], isError: true };
     }
   }
 );
