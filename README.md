@@ -1,3 +1,27 @@
+## 基于 CDP 操控抖音创作者平台，实现视频、图文的全自动发布。
+
+<p align="center">
+  <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/">
+    <img src="markdown/douyin.png" alt="Logo" width="96" height="96">
+  </a>
+</p>
+
+<h1 align="center">Douyin Upload MCP Skill</h1>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a>
+  ·
+  <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/issues">报告 Bug</a>
+  ·
+  <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/issues">提出新特性</a>
+</p>
+
+<p align="center">
+  <a href="./README.en.md">English</a> | 中文
+</p>
+
+<br>
+
 # douyin-upload-mcp-skill
 
 基于 CDP（Chrome DevTools Protocol）的抖音创作者平台自动化上传服务，通过 MCP 协议对外暴露工具，支持视频和图文的全自动发布。
@@ -153,4 +177,4 @@ BROWSER_DEBUG_PORT=18800
 
 ## License
 
-ISC
+[AGPL-3.0](LICENSE)
