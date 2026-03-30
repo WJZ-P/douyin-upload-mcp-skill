@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/">
-    <img src="markdown/douyin.png" alt="Logo" width="96" height="96" style="border-radius: 8px;">
+    <img src="markdown/douyin.png" alt="Logo" width="150" height="150" style="margin: 0; border-radius: 24px;">
   </a>
 </p>
 
