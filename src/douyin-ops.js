@@ -190,6 +190,16 @@ export function createOps(page) {
         return { ok: false, error: `unknown_type: ${type}，可选: video / imagetext / article` };
       }
 
+      // 等待 tab 元素渲染出来（首次进入上传页时 tab 可能还未加载）
+      const tabReady = await op.waitFor((label) => {
+        const tabs = [...document.querySelectorAll('div[class*="tab-item"]')];
+        return tabs.some(t => t.textContent?.includes(label));
+      }, { timeout: 10_000, interval: 500, args: [target.label] });
+
+      if (!tabReady.ok) {
+        return { ok: false, error: `tab_not_found: ${target.label}（等待 10s 未出现）` };
+      }
+
       // 检查当前激活的 tab 是否已经是目标类型
       const isActive = await op.query((label) => {
         const tabs = [...document.querySelectorAll('div[class*="tab-item"]')];
