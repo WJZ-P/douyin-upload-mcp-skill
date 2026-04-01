@@ -22,6 +22,14 @@
 
 <br>
 
+<p align="center">
+  <img src="./markdown/example.png" alt="抖音自动发布示例" width="100%">
+</p>
+
+<p align="center"><em>▲ 通过 MCP 工具全自动发布视频和图文</em></p>
+
+<br>
+
 # douyin-upload-mcp-skill
 
 基于 CDP（Chrome DevTools Protocol）的抖音创作者平台自动化上传服务，通过 MCP 协议对外暴露工具，支持视频和图文的全自动发布。
@@ -178,3 +186,7 @@ BROWSER_DEBUG_PORT=18800
 ## License
 
 [AGPL-3.0](LICENSE)
+
+## LINUX DO
+
+本项目支持 [LINUX DO](https://linux.do) 社区

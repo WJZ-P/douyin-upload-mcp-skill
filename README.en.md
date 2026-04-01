@@ -22,6 +22,14 @@
 
 <br>
 
+<p align="center">
+  <img src="./markdown/example.png" alt="Douyin auto-publishing example" width="100%">
+</p>
+
+<p align="center"><em>▲ Fully automated video and image-text publishing via MCP tools</em></p>
+
+<br>
+
 # douyin-upload-mcp-skill
 
 A CDP-based (Chrome DevTools Protocol) automation service for Douyin's Creator Platform, exposing tools via the MCP protocol for fully automated video and image-text publishing.
@@ -178,3 +186,7 @@ BROWSER_DEBUG_PORT=18800
 ## License
 
 [AGPL-3.0](LICENSE)
+
+## LINUX DO
+
+This project supports the [LINUX DO](https://linux.do) community.
